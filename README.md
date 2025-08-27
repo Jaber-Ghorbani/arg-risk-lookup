@@ -1,8 +1,12 @@
-# ARG Risk Lookup (Streamlit) — Your Data Included
+# ARG/ARM Risk Lookup — Pro v3
 
-Deploy steps:
-1) Push these files to a GitHub repo (root): `app.py`, `requirements.txt`, `genes_risk.csv`, `README.md`
-2) Go to https://share.streamlit.io -> New app -> select repo -> set `app.py`
-3) Deploy. Share the URL.
+New:
+- Autocomplete select for single-gene lookup (type to filter).
+- Continuous gradient badge for `Final_Risk_score` (0=green → 1=red).
+- Keeps display order: all *_level columns first, then *_score columns, then extras.
+- Risk Index Calculator retained with CSV upload and fuzzy matching.
 
-Update data: replace `genes_risk.csv` and redeploy.
+Deploy:
+1. Put `app.py`, `requirements.txt`, `genes_risk.csv` and optional `assets/` in a GitHub repo root.
+2. Streamlit Community Cloud → New app → set `app.py`.
+3. Deploy and share the URL.
