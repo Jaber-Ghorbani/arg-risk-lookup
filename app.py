@@ -12,17 +12,15 @@ def clamp01(x):
         x = float(x)
     except:
         return None
-    if x < 0:
-        x = 0.0
-    if x > 1:
-        x = 1.0
+    if x < 0: x = 0.0
+    if x > 1: x = 1.0
     return x
 
 def risk_color_hex(val):
     v = clamp01(val)
     if v is None:
         return "#455a64"
-    hue = (1.0 - v) * 120.0 / 360.0
+    hue = (1.0 - v) * 120.0 / 360.0  # 120°(green) -> 0°(red)
     l, s = 0.45, 0.7
     r, g, b = colorsys.hls_to_rgb(hue, l, s)
     return "#{:02x}{:02x}{:02x}".format(int(r*255), int(g*255), int(b*255))
@@ -30,7 +28,7 @@ def risk_color_hex(val):
 def risk_badge_html(val):
     v = clamp01(val)
     if v is None:
-        return '<span style="display:inline-block;padding:4px 10px;border-radius:999px;background:#455a64;color:#fff;">N/A</span>'
+        return '<span style="display:inline-block;padding:4px 10px;border-radius:999px;background:#455a64;color:#fff;">N/A</span>';
     color = risk_color_hex(v)
     return f'<span style="display:inline-block;padding:4px 10px;border-radius:999px;background:{color};color:white;font-weight:600;">{v:.3f}</span>'
 
@@ -62,18 +60,19 @@ with st.sidebar:
     st.markdown("# ARG / ARM Risk Portal")
     st.caption("Levels first, then scores. Use the calculator to estimate sample-level risk indices.")
     st.write("**Columns in display order:**")
-    st.code("\n".join(DISPLAY_COLS))
+    st.code("\\n".join(DISPLAY_COLS))
 
 tab1, tab2, tab3, tab4 = st.tabs(["🔎 Lookup", "📥 Bulk Lookup", "🧮 Risk Index Calculator", "ℹ️ About & Media"])
 
+# ---------- Single Lookup (unique keys) ----------
 with tab1:
     st.subheader("Single Gene Lookup")
     c1, c2 = st.columns([3,1])
 
     gene_options = df["Genes"].astype(str).tolist()
-    sel = c1.selectbox("Autocomplete", options=["— Select a gene —"] + gene_options, index=0)
-    q_free = c1.text_input("Or type a gene", placeholder="e.g., dfra24").strip()
-    fuzzy = c2.checkbox("Fuzzy match", value=True)
+    sel = c1.selectbox("Autocomplete", options=["— Select a gene —"] + gene_options, index=0, key="sel_single")
+    q_free = c1.text_input("Or type a gene", placeholder="e.g., dfra24", key="free_single").strip()
+    fuzzy = c2.checkbox("Fuzzy match", value=True, key="fuzzy_single")
 
     q = None
     if sel and sel != "— Select a gene —":
@@ -93,8 +92,7 @@ with tab1:
                 best = df[df["gene_key"] == best_key].iloc[0]
                 st.success(f"Best match: **{best['Genes']}**")
                 if "Final_Risk_score" in df.columns:
-                    badge = risk_badge_html(best["Final_Risk_score"])
-                    st.markdown(badge, unsafe_allow_html=True)
+                    st.markdown(risk_badge_html(best["Final_Risk_score"]), unsafe_allow_html=True)
                 st.dataframe(pd.DataFrame([best])[DISPLAY_COLS], use_container_width=True, hide_index=True)
                 with st.expander("Similar matches"):
                     sim_rows = []
@@ -109,17 +107,17 @@ with tab1:
             else:
                 row = hit.iloc[0]
                 if "Final_Risk_score" in hit.columns:
-                    badge = risk_badge_html(row["Final_Risk_score"])
-                    st.markdown(badge, unsafe_allow_html=True)
+                    st.markdown(risk_badge_html(row["Final_Risk_score"]), unsafe_allow_html=True)
                 st.dataframe(hit[DISPLAY_COLS], use_container_width=True, hide_index=True)
 
+# ---------- Bulk Lookup (unique keys) ----------
 with tab2:
     st.subheader("Bulk Lookup")
     st.write("Paste a list of gene names (one per line) and download the results.")
-    bulk_text = st.text_area("Genes list", height=160, placeholder="dfra24\nblaTEM\nmecA")
+    bulk_text = st.text_area("Genes list", height=160, placeholder="dfra24\\nblaTEM\\nmecA", key="bulk_text")
     c1, c2 = st.columns([1,1])
-    fuzzy_bulk = c1.checkbox("Fuzzy match", value=True)
-    cutoff = c2.slider("Fuzzy cutoff", min_value=50, max_value=95, value=70, step=1)
+    fuzzy_bulk = c1.checkbox("Fuzzy match", value=True, key="fuzzy_bulk")
+    cutoff = c2.slider("Fuzzy cutoff", min_value=50, max_value=95, value=70, step=1, key="cutoff_bulk")
     if bulk_text:
         queries = [x.strip() for x in bulk_text.splitlines() if x.strip()]
         out_rows = []
@@ -149,13 +147,13 @@ with tab2:
                     out_rows.append(row)
         bulk_df = pd.DataFrame(out_rows)
         st.dataframe(bulk_df, use_container_width=True, hide_index=True)
-        st.download_button("Download results (CSV)", bulk_df.to_csv(index=False).encode("utf-8"), "bulk_lookup.csv", "text/csv")
+        st.download_button("Download results (CSV)", bulk_df.to_csv(index=False).encode("utf-8"), "bulk_lookup.csv", "text/csv", key="bulk_download")
 
+# ---------- Risk Index Calculator (unique keys) ----------
 with tab3:
     st.subheader("Risk Index Calculator")
     st.markdown("""
-    **Equation**:
-    \n
+    **Equation**:\n
     \\[ \\text{Risk Index}_{\\text{sample}} = \\sum_{i=1}^{n} (\\text{Abundance}_i \\times \\text{Risk Score}_i) \\]
     """)
     c1, c2, c3 = st.columns([2,2,1])
@@ -163,16 +161,16 @@ with tab3:
     if not score_cols:
         st.error("No score columns found. Expect one of: Final_Risk_score, Pathogenic_score, Mobility_score, Clinial_Importance_score, Transmissbilitty_score.")
     else:
-        chosen_score = c1.selectbox("Risk score column to use", options=score_cols, index=0 if "Final_Risk_score" in score_cols else 0)
-        fuzzy_calc = c2.checkbox("Fuzzy match", value=True)
-        cutoff_calc = c3.slider("Cutoff", 50, 95, 70, 1)
+        chosen_score = c1.selectbox("Risk score column to use", options=score_cols, index=0 if "Final_Risk_score" in score_cols else 0, key="score_choice_calc")
+        fuzzy_calc = c2.checkbox("Fuzzy match", value=True, key="fuzzy_calc")
+        cutoff_calc = c3.slider("Cutoff", 50, 95, 70, 1, key="cutoff_calc")
 
         st.write("### Input")
         st.write("Paste CSV-like lines with `Gene, Abundance`. Example:")
         st.code("dfra24, 12.5\nmecA, 0.8")
-        calc_text = st.text_area("Genes and Abundances", height=140, placeholder="geneA, 10\ngeneB, 3.5")
+        calc_text = st.text_area("Genes and Abundances", height=140, placeholder="geneA, 10\ngeneB, 3.5", key="calc_text")
 
-        uploaded = st.file_uploader("...or upload a CSV with columns: Genes, Abundance", type=["csv"])
+        uploaded = st.file_uploader("...or upload a CSV with columns: Genes, Abundance", type=["csv"], key="calc_upload")
         input_rows = []
 
         if calc_text:
@@ -227,17 +225,17 @@ with tab3:
                     st.markdown(risk_badge_html(min(max(total, 0.0), 1.0)), unsafe_allow_html=True)
                 else:
                     st.metric("Risk Index", f"{total:.6g}")
-                st.download_button("Download matched table (CSV)", joined.to_csv(index=False).encode("utf-8"), "risk_index_breakdown.csv", "text/csv")
+                st.download_button("Download matched table (CSV)", joined.to_csv(index=False).encode("utf-8"), "risk_index_breakdown.csv", "text/csv", key="calc_download")
         else:
             st.info("Enter some data above to compute the Risk Index.")
 
+# ---------- About & Media ----------
 with tab4:
     st.subheader("About & Media")
     st.markdown("""
     **ARM context:** This portal supports Antimicrobial Resistance (AMR/ARM) risk exploration by mapping gene-level attributes to a final risk score and enabling sample-level risk index computation.
     """)
-    st.write("Upload images (e.g., risk assessment diagram, *Staphylococcus*):")
-    imgs = st.file_uploader("Upload images (PNG/JPG/SVG)", type=["png","jpg","jpeg","svg"], accept_multiple_files=True)
+    imgs = st.file_uploader("Upload images (PNG/JPG/SVG)", type=["png","jpg","jpeg","svg"], accept_multiple_files=True, key="about_upload")
     if imgs:
         cols = st.columns(3)
         i = 0
