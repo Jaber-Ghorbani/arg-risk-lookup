@@ -3,35 +3,49 @@ import streamlit as st
 import pandas as pd
 from rapidfuzz import process, fuzz
 from pathlib import Path
-import colorsys
 
 st.set_page_config(page_title="ARG/ARM Risk Lookup", layout="wide", page_icon="🧬")
 
-def clamp01(x):
+# ----------------- Color utilities -----------------
+def _interp(c1, c2, t):
+    c1 = c1.lstrip("#"); c2 = c2.lstrip("#")
+    r1,g1,b1 = int(c1[0:2],16), int(c1[2:4],16), int(c1[4:6],16)
+    r2,g2,b2 = int(c2[0:2],16), int(c2[2:4],16), int(c2[4:6],16)
+    r = int(r1 + (r2 - r1) * t)
+    g = int(g1 + (g2 - g1) * t)
+    b = int(b1 + (b2 - b1) * t)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+def _to_percent(x):
     try:
-        x = float(x)
+        v = float(x)
     except:
         return None
-    if x < 0: x = 0.0
-    if x > 1: x = 1.0
-    return x
+    if v < 0: v = 0.0
+    if v <= 1.0: v = v * 100.0
+    elif v > 100.0: v = 100.0
+    return v
 
-def risk_color_hex(val):
-    v = clamp01(val)
-    if v is None:
+def risk_color_hex_percent(val):
+    p = _to_percent(val)
+    if p is None:
         return "#455a64"
-    hue = (1.0 - v) * 120.0 / 360.0  # 120°(green) -> 0°(red)
-    l, s = 0.45, 0.7
-    r, g, b = colorsys.hls_to_rgb(hue, l, s)
-    return "#{:02x}{:02x}{:02x}".format(int(r*255), int(g*255), int(b*255))
+    if p <= 50.0:
+        t = p / 50.0
+        return _interp("#2e7d32", "#ffffff", t)
+    else:
+        t = (p - 50.0) / 50.0
+        return _interp("#ffffff", "#c62828", t)
 
 def risk_badge_html(val):
-    v = clamp01(val)
-    if v is None:
-        return '<span style="display:inline-block;padding:4px 10px;border-radius:999px;background:#455a64;color:#fff;">N/A</span>';
-    color = risk_color_hex(v)
-    return f'<span style="display:inline-block;padding:4px 10px;border-radius:999px;background:{color};color:white;font-weight:600;">{v:.3f}</span>'
+    p = _to_percent(val)
+    if p is None:
+        return '<span style="display:inline-block;padding:4px 10px;border-radius:999px;background:#455a64;color:#fff;">N/A</span>'
+    color = risk_color_hex_percent(p)
+    label = f"{p:.1f}"
+    return f'<span style="display:inline-block;padding:4px 10px;border-radius:999px;background:{color};color:#000;font-weight:700;border:1px solid #ddd;">{label}</span>'
 
+# ----------------- Data -----------------
 @st.cache_data(show_spinner=False)
 def load_data(path: str) -> pd.DataFrame:
     try:
@@ -58,27 +72,30 @@ DISPLAY_COLS = base_cols + extra_cols
 
 with st.sidebar:
     st.markdown("# ARG / ARM Risk Portal")
-    st.caption("Levels first, then scores. Use the calculator to estimate sample-level risk indices.")
+    st.caption("Levels first → Scores. Calculator computes Σ(Abundance × Risk score).")
     st.write("**Columns in display order:**")
     st.code("\\n".join(DISPLAY_COLS))
+    st.markdown("---")
+    st.markdown("**Color scale (Final_Risk_score):** 0=green → 50=white → 100=red")
 
-tab1, tab2, tab3, tab4 = st.tabs(["🔎 Lookup", "📥 Bulk Lookup", "🧮 Risk Index Calculator", "ℹ️ About & Media"])
+tab1, tab2, tab3, tab4 = st.tabs(["🔎 Lookup", "📥 Bulk Lookup", "🧮 Risk Index Calculator", "ℹ️ About"])
 
-# ---------- Single Lookup (unique keys) ----------
+# ----------------- Lookup -----------------
 with tab1:
     st.subheader("Single Gene Lookup")
-    c1, c2 = st.columns([3,1])
+    c1, c2, c3 = st.columns([3,1,1])
 
     gene_options = df["Genes"].astype(str).tolist()
     sel = c1.selectbox("Autocomplete", options=["— Select a gene —"] + gene_options, index=0, key="sel_single")
     q_free = c1.text_input("Or type a gene", placeholder="e.g., dfra24", key="free_single").strip()
     fuzzy = c2.checkbox("Fuzzy match", value=True, key="fuzzy_single")
+    do_search = c3.button("Search", key="search_btn")
 
     q = None
-    if sel and sel != "— Select a gene —":
+    if do_search:
+        q = sel if sel and sel != "— Select a gene —" else (q_free if q_free else None)
+    elif sel and sel != "— Select a gene —":
         q = sel
-    elif q_free:
-        q = q_free
 
     if q:
         q_key = q.lower()
@@ -110,7 +127,7 @@ with tab1:
                     st.markdown(risk_badge_html(row["Final_Risk_score"]), unsafe_allow_html=True)
                 st.dataframe(hit[DISPLAY_COLS], use_container_width=True, hide_index=True)
 
-# ---------- Bulk Lookup (unique keys) ----------
+# ----------------- Bulk Lookup -----------------
 with tab2:
     st.subheader("Bulk Lookup")
     st.write("Paste a list of gene names (one per line) and download the results.")
@@ -149,24 +166,27 @@ with tab2:
         st.dataframe(bulk_df, use_container_width=True, hide_index=True)
         st.download_button("Download results (CSV)", bulk_df.to_csv(index=False).encode("utf-8"), "bulk_lookup.csv", "text/csv", key="bulk_download")
 
-# ---------- Risk Index Calculator (unique keys) ----------
+# ----------------- Risk Index Calculator -----------------
 with tab3:
     st.subheader("Risk Index Calculator")
-    st.markdown("""
-    **Equation**:\n
-    \\[ \\text{Risk Index}_{\\text{sample}} = \\sum_{i=1}^{n} (\\text{Abundance}_i \\times \\text{Risk Score}_i) \\]
-    """)
+    # Equation image + LaTeX
+    eq_img = Path("assets") / "risk_index_equation.png"
+    if eq_img.exists():
+        st.image(str(eq_img), caption="Risk Index formula", use_container_width=False)
+    st.latex(r"\text{Risk Index}_{\text{sample}} = \sum_{i=1}^{n} \left(\text{Abundance}_i \times \text{Risk score}_i\right)")
+    st.markdown("Provide genes with abundances; we'll match, multiply by the chosen risk score, and sum.")
+
     c1, c2, c3 = st.columns([2,2,1])
     score_cols = [c for c in ["Final_Risk_score","Pathogenic_score","Mobility_score","Clinial_Importance_score","Transmissbilitty_score"] if c in df.columns]
     if not score_cols:
         st.error("No score columns found. Expect one of: Final_Risk_score, Pathogenic_score, Mobility_score, Clinial_Importance_score, Transmissbilitty_score.")
     else:
-        chosen_score = c1.selectbox("Risk score column to use", options=score_cols, index=0 if "Final_Risk_score" in score_cols else 0, key="score_choice_calc")
+        default_index = score_cols.index("Final_Risk_score") if "Final_Risk_score" in score_cols else 0
+        chosen_score = c1.selectbox("Risk score column to use", options=score_cols, index=default_index, key="score_choice_calc")
         fuzzy_calc = c2.checkbox("Fuzzy match", value=True, key="fuzzy_calc")
         cutoff_calc = c3.slider("Cutoff", 50, 95, 70, 1, key="cutoff_calc")
 
         st.write("### Input")
-        st.write("Paste CSV-like lines with `Gene, Abundance`. Example:")
         st.code("dfra24, 12.5\nmecA, 0.8")
         calc_text = st.text_area("Genes and Abundances", height=140, placeholder="geneA, 10\ngeneB, 3.5", key="calc_text")
 
@@ -190,7 +210,11 @@ with tab3:
             acol = colmap.get("abundance")
             if gcol and acol:
                 for _, r in tmp.iterrows():
-                    input_rows.append({"Genes": str(r[gcol]), "Abundance": float(r[acol])})
+                    try:
+                        aval = float(r[acol])
+                    except:
+                        aval = None
+                    input_rows.append({"Genes": str(r[gcol]), "Abundance": aval})
             else:
                 st.error("Uploaded CSV must contain 'Genes' and 'Abundance' columns.")
 
@@ -208,50 +232,25 @@ with tab3:
             else:
                 joined = inp.merge(df, left_on="query_key", right_on="gene_key", how="left", suffixes=("_q",""))
 
-            if chosen_score not in joined.columns:
-                st.error(f"Selected score column '{chosen_score}' is not present in your dataset.")
-            else:
-                joined["Risk_Score"] = pd.to_numeric(joined[chosen_score], errors="coerce")
-                joined["Product"] = joined["Abundance"] * joined["Risk_Score"]
-                total = joined["Product"].sum(skipna=True)
+            joined["Risk_Score"] = pd.to_numeric(joined[chosen_score], errors="coerce")
+            joined["Product"] = joined["Abundance"] * joined["Risk_Score"]
+            total = joined["Product"].sum(skipna=True)
 
-                show_cols = ["Genes_q","Genes","Abundance","Risk_Score","Product"] + present_levels + present_scores
-                show_cols = [c for c in show_cols if c in joined.columns]
-                st.write("### Matches & Contributions")
-                st.dataframe(joined[show_cols], use_container_width=True, hide_index=True)
+            show_cols = ["Genes_q","Genes","Abundance","Risk_Score","Product"] + present_levels + present_scores
+            show_cols = [c for c in show_cols if c in joined.columns]
+            st.write("### Matches & Contributions")
+            st.dataframe(joined[show_cols], use_container_width=True, hide_index=True)
 
-                if chosen_score == "Final_Risk_score":
-                    st.markdown("**Sample Risk Index (Σ Abundance × Final_Risk_score):**")
-                    st.markdown(risk_badge_html(min(max(total, 0.0), 1.0)), unsafe_allow_html=True)
-                else:
-                    st.metric("Risk Index", f"{total:.6g}")
-                st.download_button("Download matched table (CSV)", joined.to_csv(index=False).encode("utf-8"), "risk_index_breakdown.csv", "text/csv", key="calc_download")
+            st.metric("Risk Index (sample)", f"{total:.6g}")
+            st.download_button("Download matched table (CSV)", joined.to_csv(index=False).encode("utf-8"), "risk_index_breakdown.csv", "text/csv", key="calc_download")
         else:
             st.info("Enter some data above to compute the Risk Index.")
 
-# ---------- About & Media ----------
+# ----------------- About -----------------
 with tab4:
-    st.subheader("About & Media")
+    st.subheader("About")
     st.markdown("""
-    **ARM context:** This portal supports Antimicrobial Resistance (AMR/ARM) risk exploration by mapping gene-level attributes to a final risk score and enabling sample-level risk index computation.
-    """)
-    imgs = st.file_uploader("Upload images (PNG/JPG/SVG)", type=["png","jpg","jpeg","svg"], accept_multiple_files=True, key="about_upload")
-    if imgs:
-        cols = st.columns(3)
-        i = 0
-        for im in imgs:
-            with cols[i % 3]:
-                st.image(im, caption=im.name, use_container_width=True)
-            i += 1
-
-    asset_dir = Path("assets")
-    if asset_dir.exists():
-        files = [p for p in asset_dir.iterdir() if p.suffix.lower() in {".png",".jpg",".jpeg",".svg"}]
-        if files:
-            st.write("Images in repository assets:")
-            cols2 = st.columns(3)
-            i = 0
-            for p in files:
-                with cols2[i % 3]:
-                    st.image(str(p), caption=p.name, use_container_width=True)
-                i += 1
+This portal supports Antimicrobial Resistance (AMR/ARM) risk exploration by mapping gene-level attributes
+(Clinical Importance, Transmissibility, Mobility, Pathogenic level/scores) to a final risk score, and providing a calculator for sample-level risk indices based on abundance-weighted risk scores.
+""")
+    st.markdown("For questions or collaboration, visit our research group: **[Food Safety Risk Analysis (FSRA) Lab, UNL](https://fsra.unl.edu/)**.")
