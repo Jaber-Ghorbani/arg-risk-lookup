@@ -4,7 +4,7 @@ import pandas as pd
 from rapidfuzz import process, fuzz
 from pathlib import Path
 
-st.set_page_config(page_title="ARG/ARM Risk Lookup", layout="wide", page_icon="🧬")
+st.set_page_config(page_title="ARG/AMR Risk Lookup", layout="wide", page_icon="🧬")
 
 # ----------------- Color utilities -----------------
 def _interp(c1, c2, t):
@@ -71,7 +71,7 @@ extra_cols = [c for c in df.columns if c not in set(base_cols + ["gene_key"])]
 DISPLAY_COLS = base_cols + extra_cols
 
 with st.sidebar:
-    st.markdown("# ARG / ARM Risk Portal")
+    st.markdown("# ARG / AMR Risk Portal")
     st.caption("Levels first → Scores. Calculator computes Σ(Abundance × Risk score).")
     st.write("**Columns in display order:**")
     st.code("\\n".join(DISPLAY_COLS))
