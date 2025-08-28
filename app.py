@@ -256,7 +256,7 @@ with tab3:
 with tab4:
     st.subheader("About")
     st.markdown("""
-This portal supports Antimicrobial Resistance (AMR/ARM) risk exploration by mapping gene-level attributes
+This portal supports Antimicrobial Resistance (AMR) risk exploration by mapping gene-level attributes
 (Clinical Importance, Transmissibility, Mobility, Pathogenic level/scores) to a final risk score, and providing a calculator for sample-level risk indices based on abundance-weighted risk scores.
 """)
     st.markdown("For questions or collaboration, visit our research group: **[Food Safety Risk Analysis (FSRA) Lab, UNL](https://fsra.unl.edu/)**.")
